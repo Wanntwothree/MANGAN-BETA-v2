@@ -1,7 +1,9 @@
 const form = document.querySelector("#restaurant-form");
 const ownerList = document.querySelector("#owner-list");
 const ownerMessage = document.querySelector("#owner-message");
+const localStore = window.ManganStore;
 let ownedRestaurants = [];
+let currentOwner = null;
 
 async function ownerApi(url, options = {}) {
   let response;
@@ -12,7 +14,15 @@ async function ownerApi(url, options = {}) {
       ...options
     });
   } catch {
-    throw new Error("Could not reach MANGAN. Check that the beta server is running.");
+    const error = new Error("Could not reach MANGAN. Check that the beta server is running.");
+    error.offline = true;
+    throw error;
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const error = new Error("Owner tools need the optional Node server, but your sign-in is saved locally.");
+    error.offline = true;
+    throw error;
   }
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || "That request could not be completed.");
@@ -31,8 +41,14 @@ function ownerFeedback(message, error = false) {
 }
 
 async function loadOwnedRestaurants() {
-  const data = await ownerApi("/api/owner/restaurants");
-  ownedRestaurants = data.restaurants;
+  try {
+    const data = await ownerApi("api/owner/restaurants");
+    ownedRestaurants = data.restaurants;
+  } catch (error) {
+    if (!error.offline) throw error;
+    ownedRestaurants = [];
+    ownerFeedback(error.message, true);
+  }
   const countStatus = (status) => ownedRestaurants.filter((restaurant) => restaurant.status === status).length;
   document.querySelector("#stat-total").textContent = ownedRestaurants.length;
   document.querySelector("#stat-approved").textContent = countStatus("approved");
@@ -71,8 +87,8 @@ function editOwnedRestaurant(id) {
   form.elements.priceMin.value = restaurant.priceMin;
   form.elements.priceMax.value = restaurant.priceMax;
   form.elements.hours.value = restaurant.hours;
-  form.elements.imageUrl.value = restaurant.imageUrl;
-  form.elements.venueImageUrl.value = restaurant.venueImageUrl || restaurant.imageUrl;
+  form.elements.imageUrl.value = String(restaurant.imageUrl || "").replace(/^\/+/, "");
+  form.elements.venueImageUrl.value = String(restaurant.venueImageUrl || restaurant.imageUrl || "").replace(/^\/+/, "");
   form.elements.highlights.value = restaurant.highlights.join(", ");
   form.querySelectorAll('input[name="categories"]').forEach((input) => {
     input.checked = restaurant.categories.includes(input.value);
@@ -102,7 +118,7 @@ form.addEventListener("submit", async (event) => {
   submit.disabled = true;
   ownerFeedback("");
   try {
-    await ownerApi(id ? `/api/owner/restaurants/${id}` : "/api/owner/restaurants", {
+    await ownerApi(id ? `api/owner/restaurants/${id}` : "api/owner/restaurants", {
       method: id ? "PATCH" : "POST",
       body: JSON.stringify(restaurantFormData())
     });
@@ -126,7 +142,7 @@ ownerList.addEventListener("click", async (event) => {
     const id = Number(deleteButton.dataset.deleteId);
     if (!window.confirm("Delete this restaurant listing? This cannot be undone.")) return;
     try {
-      await ownerApi(`/api/owner/restaurants/${id}`, { method: "DELETE" });
+      await ownerApi(`api/owner/restaurants/${id}`, { method: "DELETE" });
       ownerFeedback("Listing deleted.");
       await loadOwnedRestaurants();
     } catch (error) {
@@ -141,7 +157,7 @@ document.querySelector("#geocode-address").addEventListener("click", async (even
   button.disabled = true;
   ownerFeedback("");
   try {
-    const { location } = await ownerApi("/api/owner/geocode", {
+    const { location } = await ownerApi("api/owner/geocode", {
       method: "POST",
       body: JSON.stringify({ address: form.elements.address.value })
     });
@@ -156,23 +172,42 @@ document.querySelector("#geocode-address").addEventListener("click", async (even
 });
 
 document.querySelector("#logout-button").addEventListener("click", async () => {
-  await ownerApi("/api/auth/logout", { method: "POST" });
-  window.location.replace("/login.html");
+  try {
+    await ownerApi("api/auth/logout", { method: "POST" });
+  } catch {
+    // Local demo logout should still work without the optional Node server.
+  }
+  if (localStore) localStore.clearCurrentUser();
+  window.location.replace("login.html");
 });
 
-(async () => {
+async function resolveOwnerUser() {
+  const localUser = localStore ? localStore.getCurrentUser() : null;
+  if (localUser) return localUser;
   try {
-    const { user } = await ownerApi("/api/auth/me");
-    if (!user) {
-      window.location.replace("/login.html?next=%2Fowner.html");
-      return;
-    }
-    if (user.role !== "owner" && user.role !== "admin") {
-      window.location.replace("/");
-      return;
-    }
-    await loadOwnedRestaurants();
+    const { user } = await ownerApi("api/auth/me");
+    return user && localStore ? localStore.setCurrentUser(user) : user;
   } catch (error) {
-    ownerFeedback(error.message, true);
+    if (error.offline) return null;
+    throw error;
   }
-})();
+}
+
+async function startOwnerPage() {
+  const user = await resolveOwnerUser();
+  if (!user) {
+    window.location.replace("login.html?next=owner.html");
+    return;
+  }
+  if (user.role !== "owner" && user.role !== "admin") {
+    window.location.replace("index.html");
+    return;
+  }
+  currentOwner = user;
+  await loadOwnedRestaurants();
+}
+
+startOwnerPage().catch((error) => ownerFeedback(error.message, true));
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted) startOwnerPage().catch((error) => ownerFeedback(error.message, true));
+});

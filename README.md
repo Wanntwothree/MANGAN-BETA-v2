@@ -27,12 +27,24 @@ node server.js
 
 ### Run through XAMPP (Apache)
 
-Apache serves the static frontend from `public/` on port 8080 and proxies
-`/api` to the Node server on port 3198. Start Apache in the XAMPP Control
-Panel, then run `START-XAMPP-BETA.bat` and open <http://localhost:8080>. The
-Node process is still required for the API and SQLite data. Do not open
-`http://localhost/mangan_sia-main/`; the app expects to be served at the web
-root so its `/css`, `/app.js`, and `/api` paths resolve correctly.
+The frontend is a static site and does not need Node.js. To run it:
+
+1. Start **Apache** in the XAMPP Control Panel.
+2. Copy this project folder into `C:\xampp\htdocs` (for example
+   `C:\xampp\htdocs\mangan_sia-main`).
+3. Open <http://localhost/mangan_sia-main/index.html> in your browser.
+
+The root `index.html` forwards to `public/index.html`, where the app lives.
+
+All CSS, JavaScript, image, and page links use relative paths, so the folder
+can have any name. Login and favorites work locally through `localStorage`
+(`demoCurrentUser` and `favorites_<email>`), and a built-in sample restaurant
+catalog is used when the API is not running.
+
+Node.js is optional. If you want live SQLite data, owner tools, admin
+monitoring, geocoding, or weather, run `node server.js` as described above.
+The optional XAMPP launcher (`START-XAMPP-BETA.bat`) starts the Node API on
+port 3198 in addition to serving the static frontend.
 
 ### Admin account
 
@@ -61,8 +73,8 @@ credentials. For production, configure a proper email provider and HTTPS.
   edited listings remain private until an admin approves them.
 - **Admin:** Sign in with the environment-seeded account to use `/admin.html`.
   Review owner listings, suspend/restore non-admin accounts, and read feedback.
-- **Guest:** Browse and save favorites without creating an account; viewing
-  full restaurant details requires signing in.
+- **Guest:** Browse the sample catalog. Saving favorites and viewing full
+  restaurant details requires signing in.
 
 ## Beta data and pricing
 

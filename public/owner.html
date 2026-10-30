@@ -4,15 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Restaurant owner · MANGAN</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/styles.css?v=3">
-  <link rel="stylesheet" href="/css/dashboard.css?v=4">
-  <script src="/owner.js?v=3" defer></script>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/styles.css?v=5">
+  <link rel="stylesheet" href="css/dashboard.css?v=5">
+  <script src="demo-store.js" defer></script>
+  <script src="owner.js?v=4" defer></script>
 </head>
 <body class="dashboard-page">
   <header class="dashboard-header">
-    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M5 15.5h22c-.5 7-4.8 11-11 11s-10.5-4-11-11Z"/><path d="M9 11.5c1-2 2-2 3 0s2 2 3 0 2-2 3 0 2 2 3 0 2-2 3 0M8 7.5c1-2 2-2 3 0m10 0c1-2 2-2 3 0"/></svg></span><span class="brand-word">mangan<span>.</span></span></a>
-    <nav class="dashboard-nav"><a href="/">Explore MANGAN ↗</a><button id="logout-button" type="button">Log out</button></nav>
+    <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M5 15.5h22c-.5 7-4.8 11-11 11s-10.5-4-11-11Z"/><path d="M9 11.5c1-2 2-2 3 0s2 2 3 0 2-2 3 0 2 2 3 0 2-2 3 0M8 7.5c1-2 2-2 3 0m10 0c1-2 2-2 3 0"/></svg></span><span class="brand-word">mangan<span>.</span></span></a>
+    <nav class="dashboard-nav"><a href="index.html">Explore MANGAN ↗</a><button id="logout-button" type="button">Log out</button></nav>
   </header>
   <main class="dashboard-main">
     <section class="dashboard-heading"><div><p class="eyebrow"><span class="eyebrow-line"></span> RESTAURANT OWNER</p><h1>Your places, your story.</h1></div><p>Add your eatery to the local guide. New and edited listings are reviewed by an admin before they appear publicly.</p></section>
@@ -38,8 +39,8 @@
           <label>Estimated minimum price (₱)<input name="priceMin" type="number" min="1" max="100000" step="1" required placeholder="200"></label>
           <label>Estimated maximum price (₱)<input name="priceMax" type="number" min="1" max="100000" step="1" required placeholder="600"></label>
           <label>Opening hours<input name="hours" maxlength="100" required placeholder="Daily · 10:00 AM – 9:00 PM"></label>
-          <label>Food image<select name="imageUrl" required><option value="/images/bangus-table.svg">Bangus table illustration</option><option value="/images/ciudad-dining.svg">Restaurant dining illustration</option><option value="/images/seafood-spread.svg">Seafood spread illustration</option></select></label>
-          <label>Venue image<select name="venueImageUrl" required><option value="/images/ciudad-dining.svg">Restaurant dining illustration</option><option value="/images/bangus-table.svg">Bangus table illustration</option><option value="/images/seafood-spread.svg">Seafood spread illustration</option></select></label>
+          <label>Food image<select name="imageUrl" required><option value="images/bangus-table.svg">Bangus table illustration</option><option value="images/ciudad-dining.svg">Restaurant dining illustration</option><option value="images/seafood-spread.svg">Seafood spread illustration</option></select></label>
+          <label>Venue image<select name="venueImageUrl" required><option value="images/ciudad-dining.svg">Restaurant dining illustration</option><option value="images/bangus-table.svg">Bangus table illustration</option><option value="images/seafood-spread.svg">Seafood spread illustration</option></select></label>
           <div class="span-two"><span class="auth-form-label">Food categories</span><div class="category-checks"><label><input name="categories" type="checkbox" value="meat"> Meat</label><label><input name="categories" type="checkbox" value="seafood"> Seafood</label><label><input name="categories" type="checkbox" value="drinks"> Drinks</label><label><input name="categories" type="checkbox" value="dessert"> Dessert</label></div></div>
           <label class="span-two">Highlights <span class="auth-hint">Separate up to five short highlights with commas.</span><input name="highlights" maxlength="300" placeholder="Fresh seafood, family meals, local favorites"></label>
           <div class="owner-form-actions"><button class="dashboard-primary" type="submit" id="restaurant-submit">Submit for review <span>↗</span></button><button class="dashboard-secondary" id="restaurant-cancel" type="button" hidden>Cancel edit</button></div>

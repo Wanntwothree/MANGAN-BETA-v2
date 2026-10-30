@@ -1,4 +1,5 @@
 const adminMessage = document.querySelector("#admin-message");
+const localStore = window.ManganStore;
 
 async function adminApi(url, options = {}) {
   let response;
@@ -9,7 +10,15 @@ async function adminApi(url, options = {}) {
       ...options
     });
   } catch {
-    throw new Error("Could not reach MANGAN. Check that the beta server is running.");
+    const error = new Error("Could not reach MANGAN. Check that the beta server is running.");
+    error.offline = true;
+    throw error;
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const error = new Error("Admin tools need the optional Node server. Sign-in state is still saved locally.");
+    error.offline = true;
+    throw error;
   }
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || "That request could not be completed.");
@@ -65,7 +74,7 @@ function renderAdminData(data) {
 }
 
 async function loadAdminData() {
-  const data = await adminApi("/api/admin/overview");
+  const data = await adminApi("api/admin/overview");
   renderAdminData(data);
 }
 
@@ -76,7 +85,7 @@ document.querySelector("#admin-restaurants").addEventListener("click", async (ev
   if (status === "rejected" && !window.confirm("Reject this restaurant listing?")) return;
   button.disabled = true;
   try {
-    await adminApi(`/api/admin/restaurants/${button.dataset.reviewId}`, {
+    await adminApi(`api/admin/restaurants/${button.dataset.reviewId}`, {
       method: "PATCH",
       body: JSON.stringify({ status })
     });
@@ -95,7 +104,7 @@ document.querySelector("#admin-users").addEventListener("click", async (event) =
   if (!isActive && !window.confirm("Suspend this account? They will not be able to sign in.")) return;
   button.disabled = true;
   try {
-    await adminApi(`/api/admin/users/${button.dataset.userId}`, {
+    await adminApi(`api/admin/users/${button.dataset.userId}`, {
       method: "PATCH",
       body: JSON.stringify({ isActive })
     });
@@ -108,23 +117,41 @@ document.querySelector("#admin-users").addEventListener("click", async (event) =
 });
 
 document.querySelector("#logout-button").addEventListener("click", async () => {
-  await adminApi("/api/auth/logout", { method: "POST" });
-  window.location.replace("/login.html");
+  try {
+    await adminApi("api/auth/logout", { method: "POST" });
+  } catch {
+    // Local demo logout should still work without the optional Node server.
+  }
+  if (localStore) localStore.clearCurrentUser();
+  window.location.replace("login.html");
 });
 
-(async () => {
+async function resolveAdminUser() {
+  const localUser = localStore ? localStore.getCurrentUser() : null;
+  if (localUser) return localUser;
   try {
-    const { user } = await adminApi("/api/auth/me");
-    if (!user) {
-      window.location.replace("/login.html?next=%2Fadmin.html");
-      return;
-    }
-    if (user.role !== "admin") {
-      window.location.replace("/");
-      return;
-    }
-    await loadAdminData();
+    const { user } = await adminApi("api/auth/me");
+    return user && localStore ? localStore.setCurrentUser(user) : user;
   } catch (error) {
-    adminFeedback(error.message, true);
+    if (error.offline) return null;
+    throw error;
   }
-})();
+}
+
+async function startAdminPage() {
+  const user = await resolveAdminUser();
+  if (!user) {
+    window.location.replace("login.html?next=admin.html");
+    return;
+  }
+  if (user.role !== "admin") {
+    window.location.replace("index.html");
+    return;
+  }
+  await loadAdminData();
+}
+
+startAdminPage().catch((error) => adminFeedback(error.message, true));
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted) startAdminPage().catch((error) => adminFeedback(error.message, true));
+});

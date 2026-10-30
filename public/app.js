@@ -39,6 +39,53 @@ function visitorId() {
 }
 
 const clientId = visitorId();
+const store = window.ManganStore;
+let localCatalogPromise = null;
+let localCatalogNotified = false;
+
+function relativeAssetPath(path) {
+  if (!path) return path;
+  return String(path).replace(/^\/+/, "");
+}
+
+function normalizeRestaurant(restaurant) {
+  return {
+    ...restaurant,
+    imageUrl: relativeAssetPath(restaurant.imageUrl),
+    venueImageUrl: relativeAssetPath(restaurant.venueImageUrl || restaurant.imageUrl)
+  };
+}
+
+function loadLocalCatalog() {
+  if (!localCatalogPromise) {
+    localCatalogPromise = fetch("data/restaurants.json", { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error("The local restaurant catalog is unavailable.");
+        return response.json();
+      })
+      .then((restaurants) => (Array.isArray(restaurants) ? restaurants.map(normalizeRestaurant) : []));
+  }
+  return localCatalogPromise;
+}
+
+function filterLocalCatalog(restaurants) {
+  const query = state.query.trim().toLocaleLowerCase();
+  const result = restaurants.filter((restaurant) => {
+    const matchesQuery = !query || [
+      restaurant.name,
+      restaurant.neighborhood,
+      restaurant.address,
+      restaurant.description,
+      ...restaurant.categories,
+      ...restaurant.highlights
+    ].some((value) => String(value).toLocaleLowerCase().includes(query));
+    const matchesCategory = state.category === "all" || restaurant.categories.includes(state.category);
+    return matchesQuery && matchesCategory;
+  });
+  if (state.sort === "rating") result.sort((a, b) => b.rating - a.rating);
+  if (state.sort === "name") result.sort((a, b) => a.name.localeCompare(b.name));
+  return result;
+}
 
 async function apiRequest(url, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -50,12 +97,16 @@ async function apiRequest(url, options = {}) {
   try {
     response = await fetch(url, { ...options, headers, credentials: "same-origin" });
   } catch {
-    throw new Error("Could not reach MANGAN. Check that the beta server is running.");
+    const error = new Error("Could not reach MANGAN. Check that the beta server is running.");
+    error.offline = true;
+    throw error;
   }
 
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
-    throw new Error("The server returned an unexpected response.");
+    const error = new Error("The server returned an unexpected response.");
+    error.offline = true;
+    throw error;
   }
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || "That request could not be completed.");
@@ -138,26 +189,34 @@ async function loadRestaurants() {
   const params = new URLSearchParams({ category: state.category, sort: state.sort });
   if (state.query) params.set("q", state.query);
   try {
-    const result = await apiRequest(`/api/restaurants?${params}`);
+    const result = await apiRequest(`api/restaurants?${params}`);
     if (sequence !== requestSequence) return;
-    state.restaurants = result.restaurants;
+    state.restaurants = result.restaurants.map(normalizeRestaurant);
     renderRestaurants();
   } catch (error) {
     if (sequence !== requestSequence) return;
-    showLoadError();
-    showToast(error.message);
+    try {
+      const catalog = await loadLocalCatalog();
+      if (sequence !== requestSequence) return;
+      state.restaurants = filterLocalCatalog(catalog);
+      renderRestaurants();
+      if (!localCatalogNotified) {
+        localCatalogNotified = true;
+        showToast("Showing the built-in sample list. Start the optional Node server for live data.");
+      }
+    } catch {
+      if (sequence !== requestSequence) return;
+      showLoadError();
+      showToast(error.message);
+    }
   }
 }
 
-async function loadFavorites() {
-  try {
-    const result = await apiRequest("/api/favorites");
-    state.favoriteIds = new Set(result.favorites.map((restaurant) => restaurant.id));
-    updateSavedCount();
-    renderRestaurants();
-  } catch (error) {
-    showToast(error.message);
-  }
+function loadFavorites() {
+  const user = currentUser || (store ? store.getCurrentUser() : null);
+  state.favoriteIds = user && store ? store.getFavoriteIds(user.email) : new Set();
+  updateSavedCount();
+  renderRestaurants();
 }
 
 function updateSavedCount() {
@@ -181,7 +240,7 @@ async function openRestaurantDetails(id) {
     } catch {
       // Ignore storage failures and continue to the sign-in page.
     }
-    window.location.assign("/login.html?next=/");
+    window.location.assign("login.html?next=index.html");
     return;
   }
   const restaurant = state.restaurants.find((item) => item.id === id);
@@ -374,7 +433,7 @@ async function loadRestaurantVisitInfo(restaurant, sequence) {
     };
   } else {
     try {
-      const result = await apiRequest(`/api/restaurants/${restaurant.id}/location`);
+      const result = await apiRequest(`api/restaurants/${restaurant.id}/location`);
       locationResult = result.location;
       locationMessage = result.message || "";
     } catch (error) {
@@ -408,7 +467,7 @@ async function loadRestaurantVisitInfo(restaurant, sequence) {
 
   try {
     const { weather } = await apiRequest(
-      `/api/weather?lat=${encodeURIComponent(weatherLocation.latitude)}&lng=${encodeURIComponent(weatherLocation.longitude)}`
+      `api/weather?lat=${encodeURIComponent(weatherLocation.latitude)}&lng=${encodeURIComponent(weatherLocation.longitude)}`
     );
     if (sequence !== detailLoadSequence || !detailDialog.open) return;
     const advice = escapeHtml(weather.advice);
@@ -435,23 +494,21 @@ detailDialog.addEventListener("close", () => {
 });
 
 async function toggleFavorite(button) {
+  if (!currentUser) {
+    showToast("Please log in to save favorites.");
+    window.location.assign("login.html?next=index.html");
+    return;
+  }
   const restaurantId = Number(button.dataset.favoriteId);
   const isSaved = state.favoriteIds.has(restaurantId);
-  button.disabled = true;
-  try {
-    await apiRequest(isSaved ? `/api/favorites/${restaurantId}` : "/api/favorites", {
-      method: isSaved ? "DELETE" : "POST",
-      ...(!isSaved && { body: JSON.stringify({ restaurantId }) })
-    });
-    if (isSaved) state.favoriteIds.delete(restaurantId);
-    else state.favoriteIds.add(restaurantId);
-    updateSavedCount();
-    renderRestaurants();
-    showToast(isSaved ? "Removed from your saved spots." : "Saved for your next food adventure.");
-  } catch (error) {
-    button.disabled = false;
-    showToast(error.message);
-  }
+  const favorites = store ? store.getFavoriteIds(currentUser.email) : new Set(state.favoriteIds);
+  if (isSaved) favorites.delete(restaurantId);
+  else favorites.add(restaurantId);
+  if (store) store.setFavoriteIds(currentUser.email, favorites);
+  state.favoriteIds = favorites;
+  updateSavedCount();
+  renderRestaurants();
+  showToast(isSaved ? "Removed from your saved spots." : "Saved for your next food adventure.");
 }
 
 document.querySelectorAll(".category-chip").forEach((button) => {
@@ -532,14 +589,29 @@ document.querySelector("#feedback-form").addEventListener("submit", async (event
   status.textContent = "";
   status.classList.remove("is-error");
   try {
-    await apiRequest("/api/feedback", { method: "POST", body: JSON.stringify(body) });
+    await apiRequest("api/feedback", { method: "POST", body: JSON.stringify(body) });
     form.reset();
     status.textContent = "Thank you — your feedback is in!";
     showToast("Thanks for helping shape MANGAN.");
     setTimeout(() => feedbackDialog.close(), 900);
   } catch (error) {
-    status.textContent = error.message;
-    status.classList.add("is-error");
+    if (error.offline) {
+      try {
+        const key = "demoFeedback";
+        const saved = JSON.parse(localStorage.getItem(key) || "[]");
+        saved.push({ ...body, createdAt: new Date().toISOString() });
+        localStorage.setItem(key, JSON.stringify(saved));
+      } catch {
+        // Feedback still succeeds for this session even if storage is blocked.
+      }
+      form.reset();
+      status.textContent = "Thank you — your feedback is saved locally!";
+      showToast("Thanks for helping shape MANGAN.");
+      setTimeout(() => feedbackDialog.close(), 900);
+    } else {
+      status.textContent = error.message;
+      status.classList.add("is-error");
+    }
   } finally {
     submit.disabled = false;
   }
@@ -553,31 +625,66 @@ document.querySelector("#menu-toggle").addEventListener("click", (event) => {
   document.querySelector(".main-nav").classList.toggle("is-open", !expanded);
 });
 
-async function loadAccount() {
+function renderAccount(user) {
   const accountLink = document.querySelector("#account-link");
   const logoutButton = document.querySelector("#logout-button");
+  currentUser = user || null;
+  if (!user) {
+    accountLink.href = "login.html";
+    accountLink.textContent = "Sign in";
+    logoutButton.hidden = true;
+    return;
+  }
+  accountLink.href = user.role === "admin" ? "admin.html" : user.role === "owner" ? "owner.html" : "index.html";
+  accountLink.textContent = user.role === "admin" ? "Admin dashboard" :
+    user.role === "owner" ? "Owner dashboard" : `Hi, ${user.name.split(" ")[0]}`;
+  logoutButton.hidden = false;
+}
+
+async function loadAccount() {
+  const localUser = store ? store.getCurrentUser() : null;
+  if (localUser) {
+    renderAccount(localUser);
+    return;
+  }
   try {
-    const { user } = await apiRequest("/api/auth/me");
-    currentUser = user || null;
-    if (!user) return;
-    accountLink.href = user.role === "admin" ? "/admin.html" : user.role === "owner" ? "/owner.html" : "/";
-    accountLink.textContent = user.role === "admin" ? "Admin dashboard" :
-      user.role === "owner" ? "Owner dashboard" : `Hi, ${user.name.split(" ")[0]}`;
-    logoutButton.hidden = false;
-    logoutButton.addEventListener("click", async () => {
-      logoutButton.disabled = true;
-      try {
-        await apiRequest("/api/auth/logout", { method: "POST" });
-        window.location.reload();
-      } catch (error) {
-        logoutButton.disabled = false;
-        showToast(error.message);
-      }
-    });
-  } catch (error) {
-    showToast(error.message);
+    const { user } = await apiRequest("api/auth/me");
+    renderAccount(user ? (store ? store.setCurrentUser(user) : user) : null);
+  } catch {
+    renderAccount(localUser);
   }
 }
+
+async function logout() {
+  const logoutButton = document.querySelector("#logout-button");
+  logoutButton.disabled = true;
+  try {
+    await apiRequest("api/auth/logout", { method: "POST" });
+  } catch {
+    // Local demo logout should still work without the optional Node server.
+  }
+  if (store) store.clearCurrentUser();
+  renderAccount(null);
+  state.favoriteIds = new Set();
+  state.savedOnly = false;
+  updateSavedCount();
+  renderRestaurants();
+  logoutButton.disabled = false;
+  showToast("You’re logged out.");
+}
+
+function refreshFromStorage() {
+  const user = store ? store.getCurrentUser() : null;
+  renderAccount(user);
+  state.favoriteIds = user && store ? store.getFavoriteIds(user.email) : new Set();
+  updateSavedCount();
+  renderRestaurants();
+}
+
+document.querySelector("#logout-button").addEventListener("click", logout);
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted) refreshFromStorage();
+});
 
 document.querySelectorAll(".main-nav a").forEach((link) => {
   link.addEventListener("click", () => {
@@ -607,4 +714,7 @@ function resumePendingDetail() {
 
 updateSavedCount();
 accountPromise = loadAccount();
-Promise.all([loadRestaurants(), loadFavorites(), accountPromise]).then(resumePendingDetail);
+Promise.all([loadRestaurants(), accountPromise]).then(() => {
+  loadFavorites();
+  resumePendingDetail();
+});
