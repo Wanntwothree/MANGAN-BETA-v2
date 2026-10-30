@@ -41,7 +41,6 @@ function visitorId() {
 const clientId = visitorId();
 const store = window.ManganStore;
 let localCatalogPromise = null;
-let localCatalogNotified = false;
 
 function relativeAssetPath(path) {
   if (!path) return path;
@@ -200,10 +199,6 @@ async function loadRestaurants() {
       if (sequence !== requestSequence) return;
       state.restaurants = filterLocalCatalog(catalog);
       renderRestaurants();
-      if (!localCatalogNotified) {
-        localCatalogNotified = true;
-        showToast("Showing the built-in sample list. Start the optional Node server for live data.");
-      }
     } catch {
       if (sequence !== requestSequence) return;
       showLoadError();
